@@ -1,0 +1,6 @@
+.venv/
+__pycache__/
+.simulation-control.json
+.simulation-control.tmp
+.traffic-metrics.bin
+simulation.log
