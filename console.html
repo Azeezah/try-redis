@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Redis console</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f8fafb;color:#252a2d;font:15px/1.5 system-ui,sans-serif}main{max-width:960px;margin:48px auto;padding:0 24px}a{color:#47719b;text-decoration:none}header{display:flex;align-items:center;justify-content:space-between;gap:16px}h1{font-size:30px;letter-spacing:-1px;margin-bottom:4px}.subtitle{color:#75808a;margin:0 0 28px}.toolbar{display:flex;align-items:center;gap:12px;margin:20px 0}button,select{font:inherit;border:1px solid #d9dfe0;border-radius:9px;background:white;padding:9px 14px;cursor:pointer}button:hover{background:#edf4fa}button:disabled{opacity:.5;cursor:wait}.toolbar button{margin-left:auto}#output{background:#17212b;color:#e2eaf2;border-radius:14px 14px 0 0;padding:24px;height:410px;overflow:auto;font:14px/1.7 ui-monospace,SFMono-Regular,Consolas,monospace}.entry{margin-bottom:20px}.prompt{color:#9abfdc;white-space:pre-wrap;overflow-wrap:anywhere}pre{margin:4px 0;white-space:pre-wrap;overflow-wrap:anywhere;font:inherit}.error{color:#ffb5b5}.timing{font:12px system-ui;color:#8c9dad}form{display:flex;gap:12px;background:#fff;border:1px solid #d9dfe0;border-top:0;border-radius:0 0 14px 14px;padding:16px}input{min-width:0;flex:1;border:0;outline:none;font:15px ui-monospace,monospace}input:focus-visible{outline:2px solid #bdd9ed;outline-offset:5px}form button{background:#dceeff;color:#345d83;border:0}.examples{display:flex;gap:8px;flex-wrap:wrap;margin:18px 0}.examples button{font:12px ui-monospace,monospace}.hint{font-size:13px;color:#75808a}code{font-size:12px}@media(max-width:600px){main{margin:20px auto;padding:0 14px}header{align-items:baseline}h1{font-size:25px}#output{height:380px;padding:16px}}
+</style>
+</head>
+<body><main>
+<header><h1>Redis console</h1><a href="/">← Simulation panel</a></header>
+<p class="subtitle">Send a command. See what Redis says.</p>
+<div class="toolbar"><label for="database">Database</label><select id="database" aria-label="Redis database"></select><button id="clear" type="button">Clear output</button></div>
+<div id="output" role="log" aria-live="polite" aria-label="Command responses"><div class="timing">Ready. Try PING, or choose an example below.</div></div>
+<form id="form"><label for="command" class="prompt" aria-label="Command prompt">›</label><input id="command" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder='SET greeting "hello world"' aria-label="Redis command" autofocus><button id="run">Run ↵</button></form>
+<div class="examples" aria-label="Example commands">
+<button>PING</button><button>SET greeting "hello world"</button><button>GET greeting</button><button>INCR counter</button><button>SCAN 0 COUNT 20</button><button>ZREVRANGE clicks:leaderboard 0 9 WITHSCORES</button><button>INFO memory</button>
+</div>
+<p class="hint">Enter to run · ↑ / ↓ for command history · Quote values containing spaces.<br>Commands run against the real playground data. Each command gets a fresh connection. Use <code>redis-cli</code> for transactions, subscriptions, and monitoring. Responses time out after 2 seconds; a timed-out write may still have executed.</p>
+<p id="connection" class="hint" role="status"></p>
+</main>
+<script>
+const input=document.querySelector('#command'),output=document.querySelector('#output'),run=document.querySelector('#run'),database=document.querySelector('#database');
+const history=[];let position=0,draft='';
+for(let i=0;i<16;i++){const option=document.createElement('option');option.value=i;option.textContent=`DB ${i}`;database.append(option);}
+function format(value){if(value===null)return '(nil)';if(typeof value==='string')return value===''?'""':value;if(typeof value==='number')return `(integer) ${value}`;return JSON.stringify(value,null,2);}
+document.querySelector('#form').addEventListener('submit',async event=>{
+ event.preventDefault();const command=input.value.trim();if(!command||run.disabled)return;
+ const db=Number(database.value);history.push(command);position=history.length;draft='';input.value='';run.disabled=true;
+ const entry=document.createElement('div');entry.className='entry';const prompt=document.createElement('div');prompt.className='prompt';prompt.textContent=`db${db} › ${command}`;const result=document.createElement('pre');result.textContent='…';entry.append(prompt,result);output.append(entry);output.scrollTop=output.scrollHeight;
+ try{const response=await fetch('/api/command',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({command,database:db})});const data=await response.json();result.textContent=response.ok?format(data.result):`(error) ${data.error}`;if(!response.ok)result.className='error';if(response.ok){const time=document.createElement('div');time.className='timing';time.textContent=`${data.elapsed_ms} ms`;entry.append(time);}}
+ catch(error){result.className='error';result.textContent=`Could not reach the console: ${error.message}`;}
+ finally{run.disabled=false;output.scrollTop=output.scrollHeight;input.focus();}
+});
+input.addEventListener('keydown',event=>{if(event.key==='ArrowUp'){event.preventDefault();if(position===history.length)draft=input.value;position=Math.max(0,position-1);input.value=history[position]??draft;}if(event.key==='ArrowDown'){event.preventDefault();position=Math.min(history.length,position+1);input.value=history[position]??draft;}});
+document.querySelector('#clear').addEventListener('click',()=>{output.replaceChildren();input.focus();});
+document.querySelectorAll('.examples button').forEach(button=>button.addEventListener('click',()=>{input.value=button.textContent;input.focus();}));
+fetch('/api/results').then(response=>{document.querySelector('#connection').textContent=response.ok?'Redis is available.':'Redis is stopped. Start it with docker compose up -d, or press play in the simulation panel.';}).catch(()=>{});
+</script></body></html>

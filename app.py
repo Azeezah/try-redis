@@ -1,6 +1,7 @@
 """Local Redis click-stream playground."""
 import atexit
 import json
+import shlex
 import os
 from pathlib import Path
 import subprocess
@@ -10,6 +11,8 @@ import time
 
 from flask import Flask, Response, jsonify, request, send_file
 from redis import Redis, RedisError
+from redis.backoff import NoBackoff
+from redis.retry import Retry
 from traffic_metrics import HEADER, read_recent
 
 ROOT = Path(__file__).resolve().parent
@@ -78,6 +81,49 @@ def stop_stack():
 @app.get('/')
 def index():
     return send_file(ROOT / 'control-panel.html')
+
+
+@app.get('/console')
+def console():
+    return send_file(ROOT / 'console.html')
+
+
+@app.post('/api/command')
+def command():
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict) or not isinstance(body.get('command'), str):
+        return jsonify(error='Enter a Redis command'), 400
+    try:
+        args = shlex.split(body['command'])
+    except ValueError as error:
+        return jsonify(error=str(error)), 400
+    if not args:
+        return jsonify(error='Enter a Redis command'), 400
+    # Requests use independent connections; conversational protocols need redis-cli.
+    if args[0].upper() in {'MULTI', 'EXEC', 'DISCARD', 'WATCH', 'UNWATCH', 'SELECT',
+                           'SUBSCRIBE', 'PSUBSCRIBE', 'SSUBSCRIBE', 'MONITOR', 'SYNC', 'PSYNC'}:
+        return jsonify(error='Use redis-cli for connection-based commands; choose a database in the console selector.'), 400
+    database = body.get('database', 0)
+    if isinstance(database, bool) or not isinstance(database, int) or not 0 <= database <= 15:
+        return jsonify(error='Database must be between 0 and 15'), 400
+    started = time.monotonic()
+    try:
+        with Redis.from_url(os.environ.get('REDIS_URL', 'redis://127.0.0.1:16379/0'),
+                            decode_responses=True, encoding_errors='backslashreplace',
+                            socket_timeout=2, socket_connect_timeout=2,
+                            retry=Retry(NoBackoff(), 0)) as redis:
+            connection = redis.connection_pool.get_connection()
+            try:
+                connection.send_command('SELECT', database)
+                connection.read_response()
+                connection.send_command(*args)
+                result = connection.read_response()
+            finally:
+                connection.disconnect()
+                redis.connection_pool.release(connection)
+        return jsonify(result=result, elapsed_ms=round((time.monotonic() - started) * 1000, 1))
+    except RedisError as error:
+        return jsonify(error=str(error)), 400
 
 
 @app.get('/api/status')

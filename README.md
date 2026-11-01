@@ -91,3 +91,11 @@ RUN_REDIS_INTEGRATION=1 .venv/bin/python -m unittest test_integration
 ```
 
 This project retains the GPL-3.0 license from `try-flink`; see `LICENSE`.
+
+## Command console
+
+Open http://localhost:5001/console to run Redis commands without starting the click simulator.
+Redis must be running (`docker compose up -d --wait`). The console includes quoted arguments,
+command history, database selection, and example commands. Commands change real Redis data.
+Each request uses a fresh connection with a two-second response timeout and no automatic retry;
+use redis-cli for connection-based transactions, subscriptions, or monitoring.
